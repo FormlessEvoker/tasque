@@ -7,14 +7,30 @@ defmodule Tasque.MixProject do
       version: "0.1.0",
       elixir: "~> 1.18.3",
       start_permanent: Mix.env() == :prod,
+      aliases: aliases(),
       deps: deps(),
-      aliases: aliases()
+
+      # Docs
+      name: "Tasque",
+      source_url: "https://github.com/FormlessEvoker.com/tasque",
+      homepage_url: "https://github.com/FormlessEvoker.com/tasque",
+      docs: &docs/0
     ]
   end
 
   def application do
     [
       extra_applications: [:logger]
+    ]
+  end
+
+  defp aliases do
+    [
+      setup: [
+        "deps.get",
+        "git_hooks.install"
+      ],
+      test: ["test --color"]
     ]
   end
 
@@ -29,14 +45,10 @@ defmodule Tasque.MixProject do
     ]
   end
 
-  defp aliases do
+  defp docs do
     [
-      setup: [
-        "deps.get",
-        "git_hooks.install"
-      ],
-      test: ["test --color"],
-      docs: [""]
+      main: "Tasque",
+      extras: ["README.md"]
     ]
   end
 end

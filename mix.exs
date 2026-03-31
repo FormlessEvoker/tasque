@@ -5,7 +5,7 @@ defmodule Tasque.MixProject do
     [
       app: :tasque,
       version: "0.1.0",
-      elixir: "~> 1.18.3",
+      elixir: "~> 1.19.2",
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
@@ -37,10 +37,9 @@ defmodule Tasque.MixProject do
   defp deps do
     [
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4"},
-      {:ex_doc, "~> 0.38.2", only: :dev, runtime: false, warn_if_outdated: true},
+      {:dialyxir, "~> 1.4", runtime: false},
+      {:ex_doc, "~> 0.38.4", only: :dev, runtime: false, warn_if_outdated: true},
       {:git_hooks, "~> 0.8.1", only: [:dev], runtime: false},
-      {:hammox, "~> 0.7", only: :test},
       {:mix_test_watch, "~> 1.3", only: [:dev, :test], runtime: false}
     ]
   end

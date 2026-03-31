@@ -1,8 +1,56 @@
 defmodule Tasque.Queue do
   @moduledoc """
-  Internal GenServer that manages the task queue and dispatch loop.
+  Internal GenServer that manages the FIFO task queue, concurrency gating,
+  and dispatch loop for a single Tasque instance.
 
-  Not part of the public API — use `Tasque` instead.
+  > #### Internal module {: .warning}
+  >
+  > This module is not part of the public API. Use the functions in `Tasque`
+  > to interact with the queue. The implementation details documented here
+  > are provided for contributors and the curious.
+
+  ## State
+
+  The GenServer maintains four fields:
+
+    * `:queue` — an Erlang `:queue` of task entries waiting to be dispatched
+    * `:pending` — a map of `task_ref => entry` for currently running tasks
+    * `:max_concurrency` — the upper bound on `map_size(pending)`
+    * `:task_supervisor` — the registered name of the companion `Task.Supervisor`
+
+  ## Dispatch Algorithm
+
+  The private `dispatch/1` function is called after every state-changing
+  event (enqueue, completion, crash, timeout). It greedily fills available
+  concurrency slots:
+
+    1. If `map_size(pending) >= max_concurrency`, return immediately
+    2. If the queue is empty, return immediately
+    3. Otherwise, dequeue the next entry, start it via
+       `Task.Supervisor.async_nolink/2`, record it in `:pending`, and
+       recurse to fill any remaining slots
+
+  ## Message Protocol
+
+  Tasks are started with `async_nolink`, so results arrive as `handle_info`
+  messages:
+
+  | Message | Meaning | Action |
+  |---|---|---|
+  | `{task_ref, result}` | Successful completion | Deliver `{:ok, result}`, demonitor, free slot |
+  | `{:DOWN, task_ref, :process, _, reason}` | Task crashed | Deliver `{:exit, reason}`, free slot |
+  | `{:tasque_timeout, task_ref}` | Per-task timeout fired | Kill task, deliver `{:exit, :timeout}`, free slot |
+
+  A catch-all `handle_info/2` clause silently discards unexpected messages
+  (e.g., a late `:DOWN` arriving after a timeout has already handled the task).
+
+  ## Timeout Implementation
+
+  When a task with a `:timeout` option is dispatched, the queue schedules
+  a `{:tasque_timeout, task_ref}` message to itself via
+  `Process.send_after/3`. If the task completes before the timer fires,
+  the timer is cancelled with `Process.cancel_timer/1`. Late timeout
+  messages for already-completed tasks are harmless no-ops.
   """
   use GenServer
 

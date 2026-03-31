@@ -2,6 +2,8 @@ defmodule TasqueTest do
   @moduledoc false
   use ExUnit.Case, async: true
 
+  doctest Tasque
+
   describe "queue_task/3" do
     setup do
       %{queue: start_queue!()}

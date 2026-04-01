@@ -56,10 +56,15 @@ defmodule Tasque.Queue do
 
   @default_max_concurrency 10
 
+  @typep task_fun :: (-> any())
+  @typep fun_or_mfa() ::
+           (-> any())
+           | {module(), atom(), [any()]}
+
   @typep queued_entry :: %{
            caller: pid(),
            caller_ref: reference(),
-           task_fun: (-> any()),
+           task_fun: task_fun(),
            timeout: pos_integer() | nil
          }
 
@@ -103,10 +108,16 @@ defmodule Tasque.Queue do
   end
 
   @impl true
+  @spec handle_call(
+          {:queue_task, task :: fun_or_mfa(), opts :: keyword()},
+          caller :: {pid(), any()},
+          state()
+        ) ::
+          {:reply, {:ok, reference()}, state()}
   def handle_call({:queue_task, task, opts}, {caller_pid, _tag}, state) do
     timeout = Keyword.get(opts, :timeout)
 
-    # A reference to send to the caller that is decoupled from the actual task reference
+    # A reference to send to the caller that is decoupled from the task reference
     caller_ref = make_ref()
 
     entry = %{
@@ -126,6 +137,7 @@ defmodule Tasque.Queue do
 
   # Task completed successfully: {ref, result}
   @impl true
+  @spec handle_info({reference(), any()}, state()) :: {:noreply, state()}
   def handle_info({task_ref, result}, state) when is_reference(task_ref) do
     case Map.pop(state.pending, task_ref) do
       {nil, _} ->
@@ -147,6 +159,8 @@ defmodule Tasque.Queue do
 
   # Task crashed
   @impl true
+  @spec handle_info({:DOWN, reference(), :process, pid(), reason :: any()}, state()) ::
+          {:noreply, state()}
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     case Map.pop(state.pending, ref) do
       {nil, _} ->
@@ -168,6 +182,7 @@ defmodule Tasque.Queue do
 
   # Task timed out
   @impl true
+  @spec handle_info({:tasque_timeout, reference()}, state()) :: {:noreply, state()}
   def handle_info({:tasque_timeout, task_ref}, state) do
     case Map.pop(state.pending, task_ref) do
       {nil, _} ->

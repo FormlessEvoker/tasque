@@ -12,8 +12,8 @@ defmodule Tasque.MixProject do
 
       # Docs
       name: "Tasque",
-      source_url: "https://github.com/FormlessEvoker.com/tasque",
-      homepage_url: "https://github.com/FormlessEvoker.com/tasque",
+      source_url: "https://github.com/FormlessEvoker/tasque",
+      homepage_url: "https://github.com/FormlessEvoker/tasque",
       docs: &docs/0
     ]
   end

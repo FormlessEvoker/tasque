@@ -33,6 +33,27 @@ defmodule TasqueTest do
       assert_receive {:tasque_result, ^ref, {:ok, "HELLO"}}, 500
     end
 
+    test "raises ArgumentError for a zero timeout", %{queue: queue} do
+      assert_raise ArgumentError, ~r/timeout must be a positive integer or :infinity/, fn ->
+        Tasque.queue_task(queue, fn -> :ok end, timeout: 0)
+      end
+
+      {:ok, ref} = Tasque.queue_task(queue, fn -> :still_alive end)
+      assert_receive {:tasque_result, ^ref, {:ok, :still_alive}}, 500
+    end
+
+    test "raises ArgumentError for a negative timeout", %{queue: queue} do
+      assert_raise ArgumentError, ~r/timeout must be a positive integer or :infinity/, fn ->
+        Tasque.queue_task(queue, fn -> :ok end, timeout: -1)
+      end
+    end
+
+    test "raises ArgumentError for a non-integer timeout", %{queue: queue} do
+      assert_raise ArgumentError, ~r/timeout must be a positive integer or :infinity/, fn ->
+        Tasque.queue_task(queue, fn -> :ok end, timeout: "50")
+      end
+    end
+
     test "sends appropriate results to respective callers", %{queue: queue} do
       Task.async(fn ->
         # Caller 1 task - returns quickly

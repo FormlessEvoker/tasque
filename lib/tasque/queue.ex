@@ -98,6 +98,10 @@ defmodule Tasque.Queue do
     name = Keyword.fetch!(opts, :name)
     max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency)
 
+    if max_concurrency < 1 do
+      raise ArgumentError, "max_concurrency must be at least 1, got: #{inspect(max_concurrency)}"
+    end
+
     {:ok,
      %{
        queue: :queue.new(),
@@ -114,25 +118,32 @@ defmodule Tasque.Queue do
           state()
         ) ::
           {:reply, {:ok, reference()}, state()}
+          | {:reply, {:error, :invalid_task}, state()}
   def handle_call({:queue_task, task, opts}, {caller_pid, _tag}, state) do
-    timeout = Keyword.get(opts, :timeout)
+    case normalize_task(task) do
+      :error ->
+        {:reply, {:error, :invalid_task}, state}
 
-    # A reference to send to the caller that is decoupled from the task reference
-    caller_ref = make_ref()
+      task_fun ->
+        timeout = Keyword.get(opts, :timeout)
 
-    entry = %{
-      caller: caller_pid,
-      caller_ref: caller_ref,
-      task_fun: normalize_task(task),
-      timeout: timeout
-    }
+        # A reference to send to the caller that is decoupled from the task reference
+        caller_ref = make_ref()
 
-    new_state =
-      state
-      |> Map.put(:queue, :queue.in(entry, state.queue))
-      |> dispatch()
+        entry = %{
+          caller: caller_pid,
+          caller_ref: caller_ref,
+          task_fun: task_fun,
+          timeout: timeout
+        }
 
-    {:reply, {:ok, caller_ref}, new_state}
+        new_state =
+          state
+          |> Map.put(:queue, :queue.in(entry, state.queue))
+          |> dispatch()
+
+        {:reply, {:ok, caller_ref}, new_state}
+    end
   end
 
   # Task completed successfully: {ref, result}
@@ -242,6 +253,8 @@ defmodule Tasque.Queue do
 
   defp normalize_task({m, f, a}) when is_atom(m) and is_atom(f) and is_list(a),
     do: fn -> apply(m, f, a) end
+
+  defp normalize_task(_), do: :error
 
   defp schedule_timeout(_, :infinity), do: nil
 

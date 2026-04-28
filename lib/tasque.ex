@@ -89,8 +89,9 @@ defmodule Tasque do
     2. `{:exit, :timeout}` is delivered to the caller
     3. The concurrency slot is freed
 
-  Pass `timeout: :infinity` to disable the per-task timeout. If no
-  `:timeout` option is given, the task runs without a timeout.
+  Pass `timeout: :infinity` to disable the per-task timeout. Otherwise,
+  `:timeout` must be a positive integer in milliseconds. If no `:timeout`
+  option is given, the task runs without a timeout.
 
   > #### Await timeout vs. task timeout {: .warning}
   >
@@ -196,9 +197,10 @@ defmodule Tasque do
 
   ## Options
 
-    * `:timeout` — per-task execution timeout in milliseconds, or
-      `:infinity`. When a task exceeds its timeout, it is killed and
-      `{:exit, :timeout}` is delivered. If omitted, no timeout is applied.
+    * `:timeout` — per-task execution timeout as a positive integer in
+      milliseconds, or `:infinity`. When a task exceeds its timeout, it is
+      killed and `{:exit, :timeout}` is delivered. If omitted, no timeout is
+      applied.
 
   ## Examples
 
@@ -233,6 +235,7 @@ defmodule Tasque do
   @spec queue_task(GenServer.server(), task(), keyword()) ::
           {:ok, ref :: reference()}
   def queue_task(queue, task, opts \\ []) do
+    validate_queue_task_opts!(opts)
     GenServer.call(queue, {:queue_task, task, opts})
   end
 
@@ -277,6 +280,24 @@ defmodule Tasque do
       {:tasque_result, ^ref, result} -> result
     after
       timeout -> {:error, :timeout}
+    end
+  end
+
+  # Don't allow negative or other invalid arguments for timeout
+  defp validate_queue_task_opts!(opts) do
+    case Keyword.get(opts, :timeout) do
+      nil ->
+        :ok
+
+      :infinity ->
+        :ok
+
+      timeout when is_integer(timeout) and timeout > 0 ->
+        :ok
+
+      timeout ->
+        raise ArgumentError,
+              "timeout must be a positive integer or :infinity, got: #{inspect(timeout)}"
     end
   end
 end

@@ -33,8 +33,8 @@ defmodule Tasque.Supervisor do
 
   | Process | Registered Name |
   |---|---|
-  | `Tasque.Supervisor` | `:"MyApp.Queue.Supervisor"` |
-  | `Task.Supervisor` | `:"MyApp.Queue.TaskSupervisor"` |
+  | `Tasque.Supervisor` | `MyApp.Queue.Supervisor` |
+  | `Task.Supervisor` | `MyApp.Queue.TaskSupervisor` |
   | `Tasque.Queue` | `MyApp.Queue` |
   """
   use Supervisor

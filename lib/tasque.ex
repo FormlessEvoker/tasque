@@ -151,8 +151,9 @@ defmodule Tasque do
   ## Options
 
     * `:name` (required) — an atom used to register the `Tasque.Queue`
-      GenServer. Internal processes derive their names from this value
-      (e.g., `:"MyApp.Queue.TaskSupervisor"`, `:"MyApp.Queue.Supervisor"`).
+      GenServer. Internal processes derive their names from this value.
+      For example, if `name: MyApp.Queue` is provided, the derived names
+      are `MyApp.Queue.TaskSupervisor` and `MyApp.Queue.Supervisor`.
 
     * `:max_concurrency` — the maximum number of tasks that may execute
       simultaneously. Defaults to `10`.

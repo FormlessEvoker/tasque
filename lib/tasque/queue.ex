@@ -65,7 +65,7 @@ defmodule Tasque.Queue do
            caller: pid(),
            caller_ref: reference(),
            task_fun: task_fun(),
-           timeout: pos_integer() | nil
+           timeout: pos_integer() | :infinity | nil
          }
 
   @typep pending_entry :: %{

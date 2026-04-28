@@ -51,7 +51,7 @@ defmodule TasqueTest do
           end)
           |> Task.await()
 
-        # Caller 1 should ONLY recieve the result for its own request
+        # Caller 1 should ONLY receive the result for its own request
         assert_receive {:tasque_result, ^r1, {:ok, :from_caller_1}}, 500
         refute_receive {:tasque_result, ^r1, {:ok, :from_caller_2}}, 100
 

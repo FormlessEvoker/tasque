@@ -256,10 +256,15 @@ defmodule Tasque.Queue do
 
   defp normalize_task(_), do: :error
 
+  defp schedule_timeout(_, nil), do: nil
+
   defp schedule_timeout(_, :infinity), do: nil
 
   defp schedule_timeout(task_ref, timeout) when is_integer(timeout) and timeout > 0,
     do: Process.send_after(self(), {:tasque_timeout, task_ref}, timeout)
 
-  defp schedule_timeout(_, _), do: nil
+  defp schedule_timeout(_, timeout) do
+    raise ArgumentError,
+          "timeout must be a positive integer or :infinity, got: #{inspect(timeout)}"
+  end
 end

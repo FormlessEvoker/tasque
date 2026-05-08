@@ -42,7 +42,7 @@ defmodule Tasque.Queue do
   |---|---|---|
   | `{task_ref, result}` | Successful completion | Deliver `{:ok, result}`, demonitor, free slot |
   | `{:DOWN, task_ref, :process, _, reason}` | Task crashed | Deliver `{:exit, reason}`, free slot |
-  | `{:tasque_timeout, caller_ref}` | Per-task timeout fired | Kill task, deliver `{:exit, :timeout}`, free slot |
+  | `{:tasque_timeout, caller_ref}` | Per-task timeout fired | If queued, tombstone and skip during dispatch; if running, terminate task; in both cases deliver `{:exit, :timeout}` |
 
   A catch-all `handle_info/2` clause silently discards unexpected messages
   (e.g., a late `:DOWN` arriving after a timeout has already handled the task).
@@ -53,9 +53,12 @@ defmodule Tasque.Queue do
   a `{:tasque_timeout, caller_ref}` message to itself via
   `Process.send_after/3`. If the task is still in the queue when the
   timeout fires, it is tombstoned and skipped during dispatch. If it is
-  currently running, it is killed. If the task completes before the timer
-  fires, the timer is cancelled with `Process.cancel_timer/1`. Late
-  timeout messages for already-completed tasks are harmless no-ops.
+  currently running, the queue attempts to terminate it and deliver a
+  timeout result. If the task has already completed by the time the
+  timeout message is handled, the normal completion or crash message wins.
+  If the task completes before the timer fires, the timer is cancelled with
+  `Process.cancel_timer/1`. Late timeout messages for already-completed
+  tasks are harmless no-ops.
   """
   use GenServer
 

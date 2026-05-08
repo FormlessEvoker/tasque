@@ -96,7 +96,7 @@ defmodule TasqueTest do
 
         # Caller 1 should ONLY receive the result for its own request
         assert_receive {:tasque_result, ^r1, {:ok, :from_caller_1}}, 500
-        refute_receive {:tasque_result, ^r1, {:ok, :from_caller_2}}, 100
+        refute_receive {:tasque_result, ^r2, {:ok, :from_caller_2}}, 100
 
         {r1, r2}
       end)
@@ -264,11 +264,13 @@ defmodule TasqueTest do
       queue = start_queue!(max_concurrency: 1)
 
       {:ok, ref1} = Tasque.queue_task(queue, blocking_task(self()), timeout: 10)
+      assert_receive {:started, first_task_pid}, 500
 
       {:ok, _ref2} = Tasque.queue_task(queue, blocking_task(self()))
 
       assert_receive {:tasque_result, ^ref1, {:exit, :timeout}}, 500
-      assert_receive {:started, _}, 500
+      assert_receive {:started, second_task_pid}, 500
+      refute first_task_pid == second_task_pid
     end
 
     test "infinity timeout means task never times out", %{queue: queue} do

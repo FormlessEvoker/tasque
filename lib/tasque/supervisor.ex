@@ -36,6 +36,9 @@ defmodule Tasque.Supervisor do
   | `Tasque.Supervisor` | `MyApp.Queue.Supervisor` |
   | `Task.Supervisor` | `MyApp.Queue.TaskSupervisor` |
   | `Tasque.Queue` | `MyApp.Queue` |
+
+  For `{:global, term}` and `{:via, module, term}` queue names, Tasque uses
+  the same naming strategy for its companion supervisor processes.
   """
   use Supervisor
 

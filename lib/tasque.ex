@@ -83,7 +83,14 @@ defmodule Tasque do
 
       Tasque.queue_task(queue, fn -> slow_work() end, timeout: 5_000)
 
-  If the task does not complete within the timeout:
+  The timeout starts when the task is enqueued, so it includes time spent
+  waiting in the queue as well as time spent running.
+
+  If the timeout fires while the task is still queued, the queue tombstones
+  it, delivers `{:exit, :timeout}` to the caller, and skips it during
+  dispatch.
+
+  If the timeout fires while the task is already running:
 
     1. The task process is killed (`Task.Supervisor.terminate_child/2`)
     2. `{:exit, :timeout}` is delivered to the caller
@@ -101,7 +108,9 @@ defmodule Tasque do
   > and it will still occupy a concurrency slot.
   >
   > The `:timeout` option on `queue_task/3` is enforced by the queue
-  > itself and **does** kill the task process.
+  > itself. If it fires while the task is already running, the task
+  > process is terminated. If it fires while the task is still queued,
+  > the task is dropped before dispatch.
 
   ## Multiple Queues
 
@@ -183,6 +192,8 @@ defmodule Tasque do
       Internal processes derive their names from this value.
       For example, if `name: MyApp.Queue` is provided, the derived names
       are `MyApp.Queue.TaskSupervisor` and `MyApp.Queue.Supervisor`.
+      For `:global` and `:via` names, Tasque derives matching companion
+      names using the same naming strategy.
 
     * `:max_concurrency` — the maximum number of tasks that may execute
       simultaneously. Defaults to `10`.
@@ -225,10 +236,12 @@ defmodule Tasque do
 
   ## Options
 
-    * `:timeout` — per-task execution timeout as a positive integer in
-      milliseconds, or `:infinity`. When a task exceeds its timeout, it is
-      killed and `{:exit, :timeout}` is delivered. If omitted, no timeout is
-      applied.
+    * `:timeout` — per-task timeout as a positive integer in milliseconds,
+      or `:infinity`. The timeout starts when the task is enqueued, so it
+      includes time spent waiting in the queue as well as time spent running.
+      If it fires while queued, the task is dropped before dispatch; if it
+      fires while running, the task process is killed. In either case,
+      `{:exit, :timeout}` is delivered. If omitted, no timeout is applied.
 
   ## Returns
 

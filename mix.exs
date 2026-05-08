@@ -9,6 +9,8 @@ defmodule Tasque.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
+      description: description(),
+      package: package(),
 
       # Docs
       name: "Tasque",
@@ -49,6 +51,20 @@ defmodule Tasque.MixProject do
       main: "Tasque",
       logo: "branding/logo.png",
       extras: ["README.md"]
+    ]
+  end
+
+  defp description do
+    "An asynchronous, bounded-concurrency task queue for Elixir."
+  end
+
+  defp package do
+    [
+      licenses: ["MIT"],
+      links: %{
+        "GitHub" => "https://github.com/FormlessEvoker/tasque",
+        "HexDocs" => "https://hexdocs.pm/tasque"
+      }
     ]
   end
 end

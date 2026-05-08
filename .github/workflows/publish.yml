@@ -3,7 +3,7 @@ name: Publish
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 permissions:
   contents: write # Needed to create a GitHub Release
@@ -22,8 +22,8 @@ jobs:
       - name: Setup BEAM
         uses: erlef/setup-beam@v1
         with:
-          elixir-version: '1.19.2'
-          otp-version: '28.1'
+          elixir-version: "1.19.2"
+          otp-version: "28.1"
 
       - name: Install Dependencies
         run: mix deps.get

@@ -5,15 +5,15 @@ defmodule Tasque.MixProject do
     [
       app: :tasque,
       version: "0.1.0",
-      elixir: "~> 1.19.2",
+      elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
 
       # Docs
       name: "Tasque",
-      source_url: "https://github.com/FormlessEvoker.com/tasque",
-      homepage_url: "https://github.com/FormlessEvoker.com/tasque",
+      source_url: "https://github.com/FormlessEvoker/tasque",
+      homepage_url: "https://github.com/FormlessEvoker/tasque",
       docs: &docs/0
     ]
   end
@@ -37,10 +37,9 @@ defmodule Tasque.MixProject do
   defp deps do
     [
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: :dev, runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.38.4", only: :dev, runtime: false, warn_if_outdated: true},
       {:git_hooks, "~> 0.8.1", only: [:dev], runtime: false},
-      {:hammox, "~> 0.7", only: :test},
       {:mix_test_watch, "~> 1.3", only: [:dev, :test], runtime: false}
     ]
   end
@@ -48,6 +47,7 @@ defmodule Tasque.MixProject do
   defp docs do
     [
       main: "Tasque",
+      logo: "branding/logo.png",
       extras: ["README.md"]
     ]
   end

@@ -24,7 +24,7 @@ defmodule Tasque.Supervisor do
   ## Child Order
 
   The `Task.Supervisor` is started **before** the `Tasque.Queue` so that
-  its registered name is available when `Tasque.Queue.init/1` runs.
+  its registered name is available during queue initialization.
 
   ## Process Naming
 

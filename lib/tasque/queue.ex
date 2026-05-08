@@ -79,7 +79,7 @@ defmodule Tasque.Queue do
            queue: :queue.queue(queued_entry()),
            pending_refs: %{optional(reference()) => pending_entry()},
            queued_refs: %{optional(reference()) => pid()},
-           cancelled_refs: MapSet.t(reference()),
+           cancelled_refs: %{optional(reference()) => true},
            max_concurrency: pos_integer(),
            task_supervisor: atom()
          }
@@ -95,7 +95,7 @@ defmodule Tasque.Queue do
   # ---------------------------------------------------------------------------
 
   @impl true
-  @spec init(keyword) :: {:ok, state()}
+  @spec init(keyword()) :: {:ok, state()}
   def init(opts) do
     name = Keyword.fetch!(opts, :name)
     max_concurrency = Keyword.get(opts, :max_concurrency, @default_max_concurrency)
@@ -109,7 +109,7 @@ defmodule Tasque.Queue do
        queue: :queue.new(),
        pending_refs: %{},
        queued_refs: %{},
-       cancelled_refs: MapSet.new(),
+       cancelled_refs: %{},
        max_concurrency: max_concurrency,
        task_supervisor: Tasque.task_supervisor_name(name)
      }}
@@ -210,7 +210,7 @@ defmodule Tasque.Queue do
         new_state =
           state
           |> update_in([:queued_refs], &Map.delete(&1, caller_ref))
-          |> update_in([:cancelled_refs], &MapSet.put(&1, caller_ref))
+          |> update_in([:cancelled_refs], &Map.put(&1, caller_ref, true))
 
         {:noreply, new_state}
 
@@ -253,10 +253,10 @@ defmodule Tasque.Queue do
         state
 
       {{:value, entry}, new_queue} ->
-        if MapSet.member?(state.cancelled_refs, entry.caller_ref) do
+        if Map.has_key?(state.cancelled_refs, entry.caller_ref) do
           # Task timed out while in queue and was tombstoned. Drop it and recurse.
           state
-          |> update_in([:cancelled_refs], &MapSet.delete(&1, entry.caller_ref))
+          |> update_in([:cancelled_refs], &Map.delete(&1, entry.caller_ref))
           |> Map.put(:queue, new_queue)
           |> dispatch()
         else

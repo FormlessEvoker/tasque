@@ -127,7 +127,7 @@ defmodule TasqueTest do
           :eventually_done
         end)
 
-      # Await with a timout shorter than task
+      # Await with a timeout shorter than task
       assert {:error, :timeout} = Tasque.await(ref, 50)
 
       # The task is still running

@@ -1,25 +1,19 @@
 # Tasque
 
-<table>
-  <tr>
-    <td valign="top" width="200">
-      <img src="branding/logo.png" alt="Tasque Logo" width="180" />
-    </td>
-    <td valign="middle">
-      <p>
-        Tasque is an asynchronous, bounded-concurrency task queue for Elixir.
-        It lets you enqueue anonymous functions or MFA tuples, run them under a
-        supervised <code>Task.Supervisor</code>, and receive results back via
-        standard OTP messages.
-      </p>
-      <p>
-        It is a good fit when you need bounded parallelism, per-task timeouts,
-        and OTP-friendly result delivery without introducing a separate job
-        system.
-      </p>
-    </td>
-  </tr>
-</table>
+<p>
+  <img src="branding/logo.png" alt="Tasque Logo" width="180" align="left" />
+</p>
+
+Tasque is an asynchronous, bounded-concurrency task queue for Elixir.
+It lets you enqueue anonymous functions or MFA tuples, run them under a
+supervised `Task.Supervisor`, and receive results back via standard OTP
+messages.
+
+It is a good fit when you need bounded parallelism, per-task timeouts,
+and OTP-friendly result delivery without introducing a separate job
+system.
+
+<br clear="left" />
 
 Good use cases for this library include:
 
@@ -112,7 +106,7 @@ same naming strategy.
 
 Different workloads often benefit from different concurrency limits. For
 example, CPU-bound work is usually best capped near the number of schedulers,
- while I/O-heavy work can often tolerate a higher limit:
+while I/O-heavy work can often tolerate a higher limit:
 
 ```elixir
 children = [

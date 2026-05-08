@@ -14,7 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
-      MIX_ENV: prod
 
     steps:
       - name: Checkout repository
@@ -30,6 +29,8 @@ jobs:
         run: mix deps.get
 
       - name: Build docs and verify compilation
+        env:
+          MIX_ENV: dev
         run: |
           mix compile --warnings-as-errors
           mix docs

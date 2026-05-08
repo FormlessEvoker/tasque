@@ -11,7 +11,8 @@ defmodule TasqueTest do
 
     test "delivers {:ok, result} to caller on success", %{queue: queue} do
       {:ok, ref} = Tasque.queue_task(queue, fn -> 42 end)
-      assert_receive {:tasque_result, ^ref, {:ok, 42}}, 500
+
+      assert_receive {:tasque_result, ^ref, {:ok, 42}}
     end
 
     @tag capture_log: true
@@ -25,12 +26,12 @@ defmodule TasqueTest do
     @tag capture_log: true
     test "delivers {:exit, reason} when task calls exit/1", %{queue: queue} do
       {:ok, ref} = Tasque.queue_task(queue, fn -> exit(:kaboom) end)
-      assert_receive {:tasque_result, ^ref, {:exit, :kaboom}}, 500
+      assert_receive {:tasque_result, ^ref, {:exit, :kaboom}}
     end
 
     test "accepts an MFA tuple", %{queue: queue} do
       {:ok, ref} = Tasque.queue_task(queue, {String, :upcase, ["hello"]})
-      assert_receive {:tasque_result, ^ref, {:ok, "HELLO"}}, 500
+      assert_receive {:tasque_result, ^ref, {:ok, "HELLO"}}
     end
 
     test "raises ArgumentError for a zero timeout", %{queue: queue} do
@@ -39,7 +40,7 @@ defmodule TasqueTest do
       end
 
       {:ok, ref} = Tasque.queue_task(queue, fn -> :still_alive end)
-      assert_receive {:tasque_result, ^ref, {:ok, :still_alive}}, 500
+      assert_receive {:tasque_result, ^ref, {:ok, :still_alive}}
     end
 
     test "raises ArgumentError for a negative timeout", %{queue: queue} do
@@ -52,6 +53,18 @@ defmodule TasqueTest do
       assert_raise ArgumentError, ~r/timeout must be a positive integer or :infinity/, fn ->
         Tasque.queue_task(queue, fn -> :ok end, timeout: "50")
       end
+    end
+
+    test "each call returns a unique ref", %{queue: queue} do
+      num_tasks = 20
+
+      refs =
+        for _ <- 1..num_tasks do
+          {:ok, ref} = Tasque.queue_task(queue, fn -> :ok end)
+          ref
+        end
+
+      assert num_tasks == Enum.uniq(refs) |> length()
     end
 
     test "sends appropriate results to respective callers", %{queue: queue} do
@@ -80,17 +93,6 @@ defmodule TasqueTest do
       end)
       |> Task.await()
     end
-
-    # Is this inferred by the prior test?
-    test "each call returns a unique ref", %{queue: queue} do
-      refs =
-        for _ <- 1..20 do
-          {:ok, ref} = Tasque.queue_task(queue, fn -> :ok end)
-          ref
-        end
-
-      assert length(Enum.uniq(refs)) == 20
-    end
   end
 
   describe "await/1" do
@@ -111,12 +113,13 @@ defmodule TasqueTest do
 
     test "returns {:error, :timeout} when await times out", %{queue: queue} do
       {:ok, ref} = Tasque.queue_task(queue, fn -> Process.sleep(:infinity) end)
-      assert {:error, :timeout} = Tasque.await(ref, 50)
+      assert {:error, :timeout} = Tasque.await(ref, 10)
     end
 
     test "await timeout does not cancel the task", %{queue: queue} do
       parent = self()
 
+      # Start long task
       {:ok, ref} =
         Tasque.queue_task(queue, fn ->
           send(parent, {:task_pid, self()})
@@ -124,6 +127,7 @@ defmodule TasqueTest do
           :eventually_done
         end)
 
+      # Await with a timout shorter than task
       assert {:error, :timeout} = Tasque.await(ref, 50)
 
       # The task is still running
@@ -134,7 +138,6 @@ defmodule TasqueTest do
       assert_receive {:tasque_result, ^ref, {:ok, :eventually_done}}, 500
     end
 
-    # is this wise? 🤨
     test "works with :infinity timeout", %{queue: queue} do
       {:ok, ref} = Tasque.queue_task(queue, fn -> :fast end)
       assert {:ok, :fast} = Tasque.await(ref, :infinity)
@@ -144,34 +147,28 @@ defmodule TasqueTest do
   describe "Concurrency and Dispatch" do
     test "tasks dispatch immediately when under max concurrency" do
       queue = start_queue!(max_concurrency: 5)
+
       {:ok, _ref} = Tasque.queue_task(queue, blocking_task(self()))
+
       assert_receive {:started, _pid}, 500
     end
 
     test "dispatches up to max_concurrency immediately" do
       queue = start_queue!(max_concurrency: 3)
 
+      # start 3 blocking tasks. Fills up concurrency of 3
       for _ <- 1..3 do
         {:ok, _} = Tasque.queue_task(queue, blocking_task(self()))
       end
 
+      # Queue up one more task
       {:ok, _} = Tasque.queue_task(queue, blocking_task(self()))
 
+      # The first 3 have started (blocking_task sends :started message)
       for _ <- 1..3, do: assert_receive({:started, _}, 500)
+
+      # The last task has not started... being blocked by the others
       refute_receive {:started, _}, 100
-    end
-
-    test "tasks queue when at max concurrency" do
-      queue = start_queue!(max_concurrency: 1)
-
-      {:ok, _ref1} = Tasque.queue_task(queue, blocking_task(self()))
-      assert_receive {:started, pid1}, 500
-
-      {:ok, _ref2} = Tasque.queue_task(queue, blocking_task(self()))
-      refute_receive {:started, _}, 100
-
-      send(pid1, :continue)
-      assert_receive {:started, _pid2}, 500
     end
 
     test "completing a task frees a slot and dispatches next queued task" do
@@ -206,24 +203,49 @@ defmodule TasqueTest do
     end
 
     test "per-task timeout delivers {:exit, :timeout}", %{queue: queue} do
-      {:ok, ref} = Tasque.queue_task(queue, fn -> Process.sleep(:infinity) end, timeout: 50)
+      {:ok, ref} = Tasque.queue_task(queue, blocking_task(self()), timeout: 10)
+
       assert_receive {:tasque_result, ^ref, {:exit, :timeout}}, 500
     end
 
-    test "timed-out task process is killed", %{queue: queue} do
+    test "task times out while waiting in the queue without ever running" do
+      # We need a queue with custom concurrency
+      queue = start_queue!(max_concurrency: 1)
+
+      # Fill the concurrency slot
+      {:ok, ref1} = Tasque.queue_task(queue, blocking_task(self()))
+      assert_receive {:started, pid}, 500
+
+      # Queue a task with a short timeout. It should sit in the queue because the pool is full.
       parent = self()
 
-      {:ok, ref} =
+      {:ok, ref2} =
         Tasque.queue_task(
           queue,
           fn ->
-            send(parent, {:task_pid, self()})
-            Process.sleep(:infinity)
+            send(parent, :should_not_run)
+            :ok
           end,
           timeout: 50
         )
 
-      assert_receive {:task_pid, task_pid}, 500
+      # Assert that it receives a timeout message while STILL stuck in the queue
+      assert_receive {:tasque_result, ^ref2, {:exit, :timeout}}, 500
+      refute_receive :should_not_run, 50
+
+      # Now let the first task finish
+      send(pid, :continue)
+      assert_receive {:tasque_result, ^ref1, {:ok, :done}}, 500
+
+      # Make sure the queue is still healthy and successfully skipped the tombstoned task
+      {:ok, ref3} = Tasque.queue_task(queue, fn -> :healthy end)
+      assert_receive {:tasque_result, ^ref3, {:ok, :healthy}}, 500
+    end
+
+    test "timed-out task process is killed", %{queue: queue} do
+      {:ok, ref} = Tasque.queue_task(queue, blocking_task(self()), timeout: 10)
+
+      assert_receive {:started, task_pid}, 500
       assert_receive {:tasque_result, ^ref, {:exit, :timeout}}, 500
 
       refute Process.alive?(task_pid)
@@ -232,8 +254,7 @@ defmodule TasqueTest do
     test "timeout frees a concurrency slot" do
       queue = start_queue!(max_concurrency: 1)
 
-      {:ok, ref1} =
-        Tasque.queue_task(queue, fn -> Process.sleep(:infinity) end, timeout: 50)
+      {:ok, ref1} = Tasque.queue_task(queue, blocking_task(self()), timeout: 10)
 
       {:ok, _ref2} = Tasque.queue_task(queue, blocking_task(self()))
 

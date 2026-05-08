@@ -65,7 +65,7 @@ defmodule Tasque.Queue do
            caller: pid(),
            caller_ref: reference(),
            task_fun: task_fun(),
-           timeout: pos_integer() | :infinity | nil
+           timer_ref: reference() | nil
          }
 
   @typep pending_entry :: %{
@@ -77,7 +77,9 @@ defmodule Tasque.Queue do
 
   @typep state :: %{
            queue: :queue.queue(queued_entry()),
-           pending: %{optional(reference()) => pending_entry()},
+           pending_refs: %{optional(reference()) => pending_entry()},
+           queued_refs: %{optional(reference()) => pid()},
+           cancelled_refs: MapSet.t(reference()),
            max_concurrency: pos_integer(),
            task_supervisor: atom()
          }
@@ -105,7 +107,9 @@ defmodule Tasque.Queue do
     {:ok,
      %{
        queue: :queue.new(),
-       pending: %{},
+       pending_refs: %{},
+       queued_refs: %{},
+       cancelled_refs: MapSet.new(),
        max_concurrency: max_concurrency,
        task_supervisor: Tasque.task_supervisor_name(name)
      }}
@@ -129,16 +133,18 @@ defmodule Tasque.Queue do
 
         # A reference to send to the caller that is decoupled from the task reference
         caller_ref = make_ref()
+        timer_ref = schedule_timeout(caller_ref, timeout)
 
         entry = %{
           caller: caller_pid,
           caller_ref: caller_ref,
           task_fun: task_fun,
-          timeout: timeout
+          timer_ref: timer_ref
         }
 
         new_state =
           state
+          |> Map.update!(:queued_refs, &Map.put(&1, caller_ref, caller_pid))
           |> Map.put(:queue, :queue.in(entry, state.queue))
           |> dispatch()
 
@@ -150,7 +156,7 @@ defmodule Tasque.Queue do
   @impl true
   @spec handle_info({reference(), any()}, state()) :: {:noreply, state()}
   def handle_info({task_ref, result}, state) when is_reference(task_ref) do
-    case Map.pop(state.pending, task_ref) do
+    case Map.pop(state.pending_refs, task_ref) do
       {nil, _} ->
         {:noreply, state}
 
@@ -161,7 +167,7 @@ defmodule Tasque.Queue do
 
         new_state =
           state
-          |> Map.put(:pending, new_pending)
+          |> Map.put(:pending_refs, new_pending)
           |> dispatch()
 
         {:noreply, new_state}
@@ -173,7 +179,7 @@ defmodule Tasque.Queue do
   @spec handle_info({:DOWN, reference(), :process, pid(), reason :: any()}, state()) ::
           {:noreply, state()}
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    case Map.pop(state.pending, ref) do
+    case Map.pop(state.pending_refs, ref) do
       {nil, _} ->
         {:noreply, state}
 
@@ -184,7 +190,7 @@ defmodule Tasque.Queue do
 
         new_state =
           state
-          |> Map.put(:pending, new_pending)
+          |> Map.put(:pending_refs, new_pending)
           |> dispatch()
 
         {:noreply, new_state}
@@ -194,23 +200,38 @@ defmodule Tasque.Queue do
   # Task timed out
   @impl true
   @spec handle_info({:tasque_timeout, reference()}, state()) :: {:noreply, state()}
-  def handle_info({:tasque_timeout, task_ref}, state) do
-    case Map.pop(state.pending, task_ref) do
-      {nil, _} ->
-        # Task already completed — late timeout message is a no-op
-        {:noreply, state}
+  def handle_info({:tasque_timeout, caller_ref}, state) do
+    cond do
+      Map.has_key?(state.queued_refs, caller_ref) ->
+        # The task is still in the queue. We tombstone it.
+        caller = Map.fetch!(state.queued_refs, caller_ref)
+        send(caller, {:tasque_result, caller_ref, {:exit, :timeout}})
 
-      {%{} = entry, new_pending} ->
+        new_state =
+          state
+          |> update_in([:queued_refs], &Map.delete(&1, caller_ref))
+          |> update_in([:cancelled_refs], &MapSet.put(&1, caller_ref))
+
+        {:noreply, new_state}
+
+      running_task =
+          Enum.find(state.pending_refs, fn {_, entry} -> entry.caller_ref == caller_ref end) ->
+        # The task is currently running.
+        {task_ref, entry} = running_task
         Task.Supervisor.terminate_child(state.task_supervisor, entry.task_pid)
         Process.demonitor(task_ref, [:flush])
         send(entry.caller, {:tasque_result, entry.caller_ref, {:exit, :timeout}})
 
         new_state =
           state
-          |> Map.put(:pending, new_pending)
+          |> update_in([:pending_refs], &Map.delete(&1, task_ref))
           |> dispatch()
 
         {:noreply, new_state}
+
+      true ->
+        # Task already completed (or unknown) — late timeout message is a no-op
+        {:noreply, state}
     end
   end
 
@@ -222,8 +243,9 @@ defmodule Tasque.Queue do
   # Private
   # ---------------------------------------------------------------------------
 
-  defp dispatch(%{pending: pending, max_concurrency: max_concurrency} = state)
-       when map_size(pending) >= max_concurrency, do: state
+  defp dispatch(%{pending_refs: pending_refs, max_concurrency: max_concurrency} = state)
+       when map_size(pending_refs) >= max_concurrency,
+       do: state
 
   defp dispatch(state) do
     case :queue.out(state.queue) do
@@ -231,21 +253,29 @@ defmodule Tasque.Queue do
         state
 
       {{:value, entry}, new_queue} ->
-        task = Task.Supervisor.async_nolink(state.task_supervisor, entry.task_fun)
+        if MapSet.member?(state.cancelled_refs, entry.caller_ref) do
+          # Task timed out while in queue and was tombstoned. Drop it and recurse.
+          state
+          |> update_in([:cancelled_refs], &MapSet.delete(&1, entry.caller_ref))
+          |> Map.put(:queue, new_queue)
+          |> dispatch()
+        else
+          # Start the task
+          task = Task.Supervisor.async_nolink(state.task_supervisor, entry.task_fun)
 
-        pending_entry = %{
-          caller: entry.caller,
-          caller_ref: entry.caller_ref,
-          task_pid: task.pid,
-          timer_ref: schedule_timeout(task.ref, entry.timeout)
-        }
+          pending_entry = %{
+            caller: entry.caller,
+            caller_ref: entry.caller_ref,
+            task_pid: task.pid,
+            timer_ref: entry.timer_ref
+          }
 
-        pending = Map.put(state.pending, task.ref, pending_entry)
-
-        state
-        |> Map.put(:pending, pending)
-        |> Map.put(:queue, new_queue)
-        |> dispatch()
+          state
+          |> update_in([:queued_refs], &Map.delete(&1, entry.caller_ref))
+          |> update_in([:pending_refs], &Map.put(&1, task.ref, pending_entry))
+          |> Map.put(:queue, new_queue)
+          |> dispatch()
+        end
     end
   end
 

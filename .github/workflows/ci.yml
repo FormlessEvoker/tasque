@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - '*'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Build & Test (Elixir ${{ matrix.elixir }}, OTP ${{ matrix.otp }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - elixir: '1.19.2'
+            otp: '28.1'
+            lint: true
+          - elixir: '1.18.3'
+            otp: '27.3'
+            lint: false
+
+    env:
+      MIX_ENV: test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup BEAM
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+
+      - name: Cache dependencies and build
+        uses: actions/cache@v4
+        id: cache-deps
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-otp${{ matrix.otp }}-elixir${{ matrix.elixir }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-otp${{ matrix.otp }}-elixir${{ matrix.elixir }}-
+
+      - name: Cache Dialyzer PLT
+        if: ${{ matrix.lint }}
+        uses: actions/cache@v4
+        id: cache-plt
+        with:
+          path: |
+            priv/plts
+            _build/test/dialyxir_erlang*.plt
+          key: ${{ runner.os }}-plt-otp${{ matrix.otp }}-elixir${{ matrix.elixir }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-plt-otp${{ matrix.otp }}-elixir${{ matrix.elixir }}-
+
+      - name: Install Dependencies
+        run: mix deps.get
+
+      - name: Check Unused Dependencies
+        if: ${{ matrix.lint }}
+        run: mix deps.unlock --check-unused
+
+      - name: Compile (Warnings as Errors)
+        run: mix compile --warnings-as-errors
+
+      - name: Check Formatting
+        if: ${{ matrix.lint }}
+        run: mix format --check-formatted
+
+      - name: Run Credo Strict
+        if: ${{ matrix.lint }}
+        run: mix credo --strict
+
+      - name: Run Tests
+        run: mix test
+
+      - name: Run Dialyzer
+        if: ${{ matrix.lint }}
+        run: mix dialyzer --format github

@@ -1,0 +1,43 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # Needed to create a GitHub Release
+
+jobs:
+  release_and_publish:
+    name: Release and Publish
+    runs-on: ubuntu-latest
+    env:
+      HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+      MIX_ENV: prod
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup BEAM
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: '1.19.2'
+          otp-version: '28.1'
+
+      - name: Install Dependencies
+        run: mix deps.get
+
+      - name: Build docs and verify compilation
+        run: |
+          mix compile --warnings-as-errors
+          mix docs
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+
+      - name: Publish to Hex
+        run: mix hex.publish --yes

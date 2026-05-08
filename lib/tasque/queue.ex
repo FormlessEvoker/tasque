@@ -220,6 +220,7 @@ defmodule Tasque.Queue do
           state
           |> update_in([:queued_refs], &Map.delete(&1, caller_ref))
           |> update_in([:cancelled_refs], &Map.put(&1, caller_ref, true))
+          |> dispatch()
 
         {:noreply, new_state}
 

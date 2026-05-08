@@ -141,7 +141,22 @@ defmodule Tasque do
   @default_await_timeout 5_000
 
   @doc false
-  def task_supervisor_name(name), do: :"#{name}.TaskSupervisor"
+  def task_supervisor_name(name) when is_atom(name), do: :"#{name}.TaskSupervisor"
+  def task_supervisor_name({:global, term}), do: {:global, {term, :task_supervisor}}
+
+  def task_supervisor_name({:via, Registry, {registry, key}}),
+    do: {:via, Registry, {registry, {key, :task_supervisor}}}
+
+  def task_supervisor_name({:via, module, term}), do: {:via, module, {term, :task_supervisor}}
+
+  @doc false
+  def supervisor_name(name) when is_atom(name), do: :"#{name}.Supervisor"
+  def supervisor_name({:global, term}), do: {:global, {term, :supervisor}}
+
+  def supervisor_name({:via, Registry, {registry, key}}),
+    do: {:via, Registry, {registry, {key, :supervisor}}}
+
+  def supervisor_name({:via, module, term}), do: {:via, module, {term, :supervisor}}
 
   @doc """
   Returns a child specification for starting a Tasque instance under a supervisor.

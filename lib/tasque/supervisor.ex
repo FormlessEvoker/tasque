@@ -41,7 +41,7 @@ defmodule Tasque.Supervisor do
 
   def start_link(opts) do
     name = Keyword.fetch!(opts, :name)
-    Supervisor.start_link(__MODULE__, opts, name: :"#{name}.Supervisor")
+    Supervisor.start_link(__MODULE__, opts, name: Tasque.supervisor_name(name))
   end
 
   @impl true

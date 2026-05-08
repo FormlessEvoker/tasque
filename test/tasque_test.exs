@@ -34,6 +34,15 @@ defmodule TasqueTest do
       assert_receive {:tasque_result, ^ref, {:ok, "HELLO"}}
     end
 
+    test "returns {:error, :invalid_task} for unsupported task formats", %{queue: queue} do
+      assert {:error, :invalid_task} = Tasque.queue_task(queue, :not_a_task)
+      assert {:error, :invalid_task} = Tasque.queue_task(queue, {"String", "upcase", ["hello"]})
+
+      # Ensure queue remains alive
+      {:ok, ref} = Tasque.queue_task(queue, fn -> :works end)
+      assert_receive {:tasque_result, ^ref, {:ok, :works}}
+    end
+
     test "raises ArgumentError for a zero timeout", %{queue: queue} do
       assert_raise ArgumentError, ~r/timeout must be a positive integer or :infinity/, fn ->
         Tasque.queue_task(queue, fn -> :ok end, timeout: 0)
@@ -339,10 +348,39 @@ defmodule TasqueTest do
     end
   end
 
+  describe "Naming Strategies" do
+    test "supports atom names" do
+      # Atom creation here is bounded since it runs exactly once per test suite
+      name = :tasque_atom_test_queue
+      start_supervised!({Tasque, name: name})
+
+      {:ok, ref} = Tasque.queue_task(name, fn -> :atom_works end)
+      assert {:ok, :atom_works} = Tasque.await(ref)
+    end
+
+    test "supports global tuples" do
+      name = {:global, {:tasque_test, System.unique_integer()}}
+      start_supervised!({Tasque, name: name})
+
+      {:ok, ref} = Tasque.queue_task(name, fn -> :global_works end)
+      assert {:ok, :global_works} = Tasque.await(ref)
+    end
+
+    test "supports via tuples" do
+      id = System.unique_integer()
+      name = {:via, Registry, {Tasque.TestRegistry, "custom_via_#{id}"}}
+      start_supervised!({Tasque, name: name})
+
+      {:ok, ref} = Tasque.queue_task(name, fn -> :via_works end)
+      assert {:ok, :via_works} = Tasque.await(ref)
+    end
+  end
+
   # Starts a Tasque queue as a supervised child of the test process.
   # Returns the registered name that addresses the Tasque.Queue GenServer.
   defp start_queue!(opts \\ []) do
-    name = :"tasque_#{System.unique_integer([:positive])}"
+    id = System.unique_integer([:positive])
+    name = {:via, Registry, {Tasque.TestRegistry, "tasque_#{id}"}}
 
     opts =
       opts

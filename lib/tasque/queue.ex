@@ -80,6 +80,8 @@ defmodule Tasque.Queue do
            timer_ref: reference() | nil
          }
 
+  @typep supervisor_name :: atom() | {:global, term()} | {:via, module(), term()}
+
   @typep state :: %{
            queue: :queue.queue(queued_entry()),
            pending_refs: %{optional(reference()) => pending_entry()},
@@ -87,7 +89,7 @@ defmodule Tasque.Queue do
            cancelled_refs: %{optional(reference()) => true},
            caller_to_task_ref: %{optional(reference()) => reference()},
            max_concurrency: pos_integer(),
-           task_supervisor: atom()
+           task_supervisor: supervisor_name()
          }
 
   @doc false
@@ -227,17 +229,27 @@ defmodule Tasque.Queue do
       task_ref = Map.get(state.caller_to_task_ref, caller_ref) ->
         # The task is currently running.
         entry = Map.fetch!(state.pending_refs, task_ref)
-        Task.Supervisor.terminate_child(state.task_supervisor, entry.task_pid)
-        Process.demonitor(task_ref, [:flush])
-        send(entry.caller, {:tasque_result, entry.caller_ref, {:exit, :timeout}})
 
-        new_state =
-          state
-          |> update_in([:pending_refs], &Map.delete(&1, task_ref))
-          |> update_in([:caller_to_task_ref], &Map.delete(&1, caller_ref))
-          |> dispatch()
+        # Check if we successfully stop the task, or if it already exited/finished.
+        case Task.Supervisor.terminate_child(state.task_supervisor, entry.task_pid) do
+          :ok ->
+            Process.demonitor(task_ref, [:flush])
+            send(entry.caller, {:tasque_result, entry.caller_ref, {:exit, :timeout}})
 
-        {:noreply, new_state}
+            new_state =
+              state
+              |> update_in([:pending_refs], &Map.delete(&1, task_ref))
+              |> update_in([:caller_to_task_ref], &Map.delete(&1, caller_ref))
+              |> dispatch()
+
+            {:noreply, new_state}
+
+          {:error, :not_found} ->
+            # The task already exited normally or crashed before we could stop it,
+            # so the {task_ref, result} or :DOWN message is already in our mailbox.
+            # We ignore this timeout and let the normal handle_info clause process the outcome.
+            {:noreply, state}
+        end
 
       true ->
         # Task already completed (or unknown) — late timeout message is a no-op

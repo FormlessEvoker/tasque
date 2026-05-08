@@ -47,6 +47,7 @@ defmodule Tasque.MixProject do
   defp docs do
     [
       main: "Tasque",
+      logo: "branding/logo.png",
       extras: ["README.md"]
     ]
   end

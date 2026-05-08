@@ -159,6 +159,18 @@ defmodule Tasque do
   def supervisor_name({:via, module, term}), do: {:via, module, {term, :supervisor}}
 
   @doc """
+  Starts a Tasque instance directly.
+
+  This is primarily useful for testing or starting a queue dynamically.
+  In production applications, it is heavily recommended to start `Tasque`
+  as part of your application's supervision tree instead of calling
+  `start_link/1` directly.
+
+  See `child_spec/1` for supported options.
+  """
+  defdelegate start_link(opts), to: Tasque.Supervisor
+
+  @doc """
   Returns a child specification for starting a Tasque instance under a supervisor.
 
   This is invoked automatically when you use `{Tasque, opts}` tuple syntax in
@@ -166,8 +178,9 @@ defmodule Tasque do
 
   ## Options
 
-    * `:name` (required) — an atom used to register the `Tasque.Queue`
-      GenServer. Internal processes derive their names from this value.
+    * `:name` (required) — the name used to register the queue. Can be an
+      atom, a `{:global, term}` tuple, or a `{:via, module, term}` tuple.
+      Internal processes derive their names from this value.
       For example, if `name: MyApp.Queue` is provided, the derived names
       are `MyApp.Queue.TaskSupervisor` and `MyApp.Queue.Supervisor`.
 
@@ -224,7 +237,7 @@ defmodule Tasque do
 
   ## Examples
 
-      iex> {:ok, _} = Tasque.Supervisor.start_link(name: Tasque.QueueTaskDoc, max_concurrency: 5)
+      iex> {:ok, _} = Tasque.start_link(name: Tasque.QueueTaskDoc, max_concurrency: 5)
       iex> {:ok, ref} = Tasque.queue_task(Tasque.QueueTaskDoc, fn -> 1 + 1 end)
       iex> is_reference(ref)
       true
@@ -233,14 +246,14 @@ defmodule Tasque do
 
   With an MFA tuple:
 
-      iex> {:ok, _} = Tasque.Supervisor.start_link(name: Tasque.QueueTaskMfaDoc, max_concurrency: 5)
+      iex> {:ok, _} = Tasque.start_link(name: Tasque.QueueTaskMfaDoc, max_concurrency: 5)
       iex> {:ok, ref} = Tasque.queue_task(Tasque.QueueTaskMfaDoc, {String, :upcase, ["hello"]})
       iex> Tasque.await(ref)
       {:ok, "HELLO"}
 
   With a per-task timeout:
 
-      iex> {:ok, _} = Tasque.Supervisor.start_link(name: Tasque.QueueTaskTimeoutDoc, max_concurrency: 5)
+      iex> {:ok, _} = Tasque.start_link(name: Tasque.QueueTaskTimeoutDoc, max_concurrency: 5)
       iex> {:ok, ref} = Tasque.queue_task(Tasque.QueueTaskTimeoutDoc, fn -> Process.sleep(:infinity) end, timeout: 50)
       iex> receive do
       ...>   {:tasque_result, ^ref, outcome} -> outcome
@@ -280,14 +293,14 @@ defmodule Tasque do
 
   ## Examples
 
-      iex> {:ok, _} = Tasque.Supervisor.start_link(name: Tasque.AwaitDoc, max_concurrency: 5)
+      iex> {:ok, _} = Tasque.start_link(name: Tasque.AwaitDoc, max_concurrency: 5)
       iex> {:ok, ref} = Tasque.queue_task(Tasque.AwaitDoc, fn -> 42 end)
       iex> Tasque.await(ref)
       {:ok, 42}
 
   With a custom timeout:
 
-      iex> {:ok, _} = Tasque.Supervisor.start_link(name: Tasque.AwaitTimeoutDoc, max_concurrency: 5)
+      iex> {:ok, _} = Tasque.start_link(name: Tasque.AwaitTimeoutDoc, max_concurrency: 5)
       iex> {:ok, ref} = Tasque.queue_task(Tasque.AwaitTimeoutDoc, fn -> Process.sleep(:infinity) end)
       iex> Tasque.await(ref, 50)
       {:error, :timeout}

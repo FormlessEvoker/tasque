@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="branding/logo.png" alt="Tasque Logo" width="200" />
+</p>
+
 # Tasque
 
 Tasque is an asynchronous concurrent task queue for Elixir.
@@ -6,7 +10,7 @@ It can be used to manage background jobs, process tasks in parallel, and handle 
 Good use cases for this library include:
 
 - Database queries
-- Commincations with external APIs or services
+- Communications with external APIs or services
 
 ## Installation
 

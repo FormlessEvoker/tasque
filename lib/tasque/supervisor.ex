@@ -15,7 +15,7 @@ defmodule Tasque.Supervisor do
   because:
 
     * If the `Task.Supervisor` crashes, all in-flight tasks are lost and
-      the queue's `:pending` map would reference dead processes
+      the queue's `:pending_refs` map would reference dead processes
     * If the `Tasque.Queue` crashes, the mapping between task refs and
       callers is lost, so in-flight task results could never be delivered
 

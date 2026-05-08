@@ -202,6 +202,11 @@ defmodule Tasque do
       killed and `{:exit, :timeout}` is delivered. If omitted, no timeout is
       applied.
 
+  ## Returns
+
+    * `{:ok, ref}` on success.
+    * `{:error, :invalid_task}` if the task is neither a zero-arity function nor an MFA tuple.
+
   ## Examples
 
       iex> {:ok, _} = Tasque.Supervisor.start_link(name: Tasque.QueueTaskDoc, max_concurrency: 5)
@@ -233,7 +238,7 @@ defmodule Tasque do
   @type task :: (-> any()) | {module(), atom(), [any()]}
 
   @spec queue_task(GenServer.server(), task(), keyword()) ::
-          {:ok, ref :: reference()}
+          {:ok, ref :: reference()} | {:error, :invalid_task}
   def queue_task(queue, task, opts \\ []) do
     validate_queue_task_opts!(opts)
     GenServer.call(queue, {:queue_task, task, opts})
@@ -273,7 +278,7 @@ defmodule Tasque do
       {:error, :timeout}
 
   """
-  @spec await(ref :: reference(), timeout :: pos_integer() | :infinity) ::
+  @spec await(ref :: reference(), timeout :: timeout()) ::
           {:ok, result :: any()} | {:exit, reason :: any()} | {:error, :timeout}
   def await(ref, timeout \\ @default_await_timeout) do
     receive do

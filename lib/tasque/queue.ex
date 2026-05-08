@@ -11,11 +11,14 @@ defmodule Tasque.Queue do
 
   ## State
 
-  The GenServer maintains four fields:
+  The GenServer maintains the following fields:
 
     * `:queue` — an Erlang `:queue` of task entries waiting to be dispatched
-    * `:pending` — a map of `task_ref => entry` for currently running tasks
-    * `:max_concurrency` — the upper bound on `map_size(pending)`
+    * `:pending_refs` — a map of internal `task_ref => entry` for running tasks
+    * `:queued_refs` — a map of `caller_ref => pid` for waiting tasks
+    * `:cancelled_refs` — a map of `caller_ref => true` for tombstoned tasks
+    * `:caller_to_task_ref` — a map of `caller_ref => task_ref` for fast timeout lookups
+    * `:max_concurrency` — the upper bound on `map_size(pending_refs)`
     * `:task_supervisor` — the registered name of the companion `Task.Supervisor`
 
   ## Dispatch Algorithm
@@ -24,10 +27,10 @@ defmodule Tasque.Queue do
   event (enqueue, completion, crash, timeout). It greedily fills available
   concurrency slots:
 
-    1. If `map_size(pending) >= max_concurrency`, return immediately
+    1. If `map_size(pending_refs) >= max_concurrency`, return immediately
     2. If the queue is empty, return immediately
     3. Otherwise, dequeue the next entry, start it via
-       `Task.Supervisor.async_nolink/2`, record it in `:pending`, and
+       `Task.Supervisor.async_nolink/2`, record it in `:pending_refs`, and
        recurse to fill any remaining slots
 
   ## Message Protocol
@@ -39,18 +42,20 @@ defmodule Tasque.Queue do
   |---|---|---|
   | `{task_ref, result}` | Successful completion | Deliver `{:ok, result}`, demonitor, free slot |
   | `{:DOWN, task_ref, :process, _, reason}` | Task crashed | Deliver `{:exit, reason}`, free slot |
-  | `{:tasque_timeout, task_ref}` | Per-task timeout fired | Kill task, deliver `{:exit, :timeout}`, free slot |
+  | `{:tasque_timeout, caller_ref}` | Per-task timeout fired | Kill task, deliver `{:exit, :timeout}`, free slot |
 
   A catch-all `handle_info/2` clause silently discards unexpected messages
   (e.g., a late `:DOWN` arriving after a timeout has already handled the task).
 
   ## Timeout Implementation
 
-  When a task with a `:timeout` option is dispatched, the queue schedules
-  a `{:tasque_timeout, task_ref}` message to itself via
-  `Process.send_after/3`. If the task completes before the timer fires,
-  the timer is cancelled with `Process.cancel_timer/1`. Late timeout
-  messages for already-completed tasks are harmless no-ops.
+  When a task with a `:timeout` option is enqueued, the queue schedules
+  a `{:tasque_timeout, caller_ref}` message to itself via
+  `Process.send_after/3`. If the task is still in the queue when the
+  timeout fires, it is tombstoned and skipped during dispatch. If it is
+  currently running, it is killed. If the task completes before the timer
+  fires, the timer is cancelled with `Process.cancel_timer/1`. Late
+  timeout messages for already-completed tasks are harmless no-ops.
   """
   use GenServer
 
@@ -80,6 +85,7 @@ defmodule Tasque.Queue do
            pending_refs: %{optional(reference()) => pending_entry()},
            queued_refs: %{optional(reference()) => pid()},
            cancelled_refs: %{optional(reference()) => true},
+           caller_to_task_ref: %{optional(reference()) => reference()},
            max_concurrency: pos_integer(),
            task_supervisor: atom()
          }
@@ -110,6 +116,7 @@ defmodule Tasque.Queue do
        pending_refs: %{},
        queued_refs: %{},
        cancelled_refs: %{},
+       caller_to_task_ref: %{},
        max_concurrency: max_concurrency,
        task_supervisor: Tasque.task_supervisor_name(name)
      }}
@@ -168,6 +175,7 @@ defmodule Tasque.Queue do
         new_state =
           state
           |> Map.put(:pending_refs, new_pending)
+          |> update_in([:caller_to_task_ref], &Map.delete(&1, entry.caller_ref))
           |> dispatch()
 
         {:noreply, new_state}
@@ -191,6 +199,7 @@ defmodule Tasque.Queue do
         new_state =
           state
           |> Map.put(:pending_refs, new_pending)
+          |> update_in([:caller_to_task_ref], &Map.delete(&1, entry.caller_ref))
           |> dispatch()
 
         {:noreply, new_state}
@@ -214,10 +223,9 @@ defmodule Tasque.Queue do
 
         {:noreply, new_state}
 
-      running_task =
-          Enum.find(state.pending_refs, fn {_, entry} -> entry.caller_ref == caller_ref end) ->
+      task_ref = Map.get(state.caller_to_task_ref, caller_ref) ->
         # The task is currently running.
-        {task_ref, entry} = running_task
+        entry = Map.fetch!(state.pending_refs, task_ref)
         Task.Supervisor.terminate_child(state.task_supervisor, entry.task_pid)
         Process.demonitor(task_ref, [:flush])
         send(entry.caller, {:tasque_result, entry.caller_ref, {:exit, :timeout}})
@@ -225,6 +233,7 @@ defmodule Tasque.Queue do
         new_state =
           state
           |> update_in([:pending_refs], &Map.delete(&1, task_ref))
+          |> update_in([:caller_to_task_ref], &Map.delete(&1, caller_ref))
           |> dispatch()
 
         {:noreply, new_state}
@@ -273,6 +282,7 @@ defmodule Tasque.Queue do
           state
           |> update_in([:queued_refs], &Map.delete(&1, entry.caller_ref))
           |> update_in([:pending_refs], &Map.put(&1, task.ref, pending_entry))
+          |> update_in([:caller_to_task_ref], &Map.put(&1, entry.caller_ref, task.ref))
           |> Map.put(:queue, new_queue)
           |> dispatch()
         end
@@ -290,8 +300,8 @@ defmodule Tasque.Queue do
 
   defp schedule_timeout(_, :infinity), do: nil
 
-  defp schedule_timeout(task_ref, timeout) when is_integer(timeout) and timeout > 0,
-    do: Process.send_after(self(), {:tasque_timeout, task_ref}, timeout)
+  defp schedule_timeout(caller_ref, timeout) when is_integer(timeout) and timeout > 0,
+    do: Process.send_after(self(), {:tasque_timeout, caller_ref}, timeout)
 
   defp schedule_timeout(_, timeout) do
     raise ArgumentError,
